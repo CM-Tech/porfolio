@@ -1,105 +1,77 @@
 <!DOCTYPE html>
-<meta charset="utf-8">
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>Testing</title>
+	<script src="https://d3js.org/d3.v5.min.js"></script>
+	<style>
+		body {
+			overflow: hidden;
+			margin: 0;
+			padding: 0;
+		}
+	</style>
+</head>
+
 <body>
-<script src="//d3js.org/d3.v3.min.js"></script>
-<script>
+	<script>
+		var width = window.innerWidth,
+			height = window.innerHeight;
 
-var width = window.innerWidth,
-    height = window.innerHeight;
+		var svg = d3.select("body").append("svg")
+			.attr("width", width)
+			.attr("height", height);
 
-var nodes = d3.range(100).map(function() { return {radius: 10,nr:Math.random()*10+100}; }),
-    root = nodes[0],
-    color = d3.scale.category10();
+		var nodes = d3.range(100).map(() => ({ r: 10, nr: Math.random() * 10 + 100 }));
+		nodes[0].r = 0;
+		var m = [0, 0];
+		var collide = d3.forceCollide().radius((d) => d.r + 10);
+		var simulation = d3.forceSimulation(nodes)
+			.alphaDecay(0)
+			.force("charge", d3.forceManyBody().strength((_, i) => i ? 0 : 100))
+			.force("center", d3.forceCenter(width / 2, height / 2))
+			.force("collide", collide)
+			.on("tick", () => {
+				var node = nodes[1];
+				var closestNode = [1, Math.sqrt(Math.pow(node.x - m[0], 2) + Math.pow(node.y - m[1], 2)) - node.r]
+				for (var i = 2; i < nodes.length; i++) {
+					node = nodes[i];
+					var d = Math.sqrt(Math.pow(node.x - m[0], 2) + Math.pow(node.y - m[1], 2)) - node.r;
+					if (d < closestNode[1]) {
+						closestNode = [i, d];
+					}
+				}
+				for (var i = 1; i < nodes.length; i++) {
+					if (closestNode[1] < 0 && closestNode[0] == i) {
+						if (nodes[closestNode[0]].r < 200) {
+							nodes[closestNode[0]].r += 2;
+						}
+					} else {
+						if (nodes[i].r > nodes[i].nr + 2) {
+							nodes[i].r -= 2;
+						} else if (nodes[i].r < nodes[i].nr - 2) {
+							nodes[i].r += 2;
+						}
+					}
+				}
+				collide.radius((d) => d.r + 10)
+				svg.selectAll("circle")
+					.attr("cx", (d) => d.x)
+					.attr("cy", (d) => d.y)
+					.attr("r", (d) => d.r);
+			});
 
-root.radius = 0;
-root.fixed = true;
-var m=[0,0];
+		svg.selectAll("circle")
+			.data(nodes.slice(1))
+			.enter().append("circle")
+			.style("fill", (d, i) => d3.schemeCategory10[i % 6]);
 
-var force = d3.layout.force()
-    .gravity(0.0)
-    .charge(function(d, i) { return i ? 1 : 0; })
-    .nodes(nodes)
-    .size([width, height]);
+		svg.on("mousemove", function () {
+			m = d3.mouse(this);
+			simulation.restart();
+		});
+	</script>
+</body>
 
-force.start();
-
-var svg = d3.select("body").append("svg")
-    .attr("width", width)
-    .attr("height", height);
-
-svg.selectAll("circle")
-    .data(nodes.slice(1))
-  .enter().append("circle")
-    .attr("r", function(d) { return d.radius; })
-    .style("fill", function(d, i) { return color(i % 6); });
-
-force.on("tick", function(e) {
-  var q = d3.geom.quadtree(nodes),
-      i = 0,
-      n = nodes.length;
-
-  while (++i < n) q.visit(collide(nodes[i]));
-  var p1=m;
-  var node=nodes[1];
-  var closestNode=[1,Math.sqrt(Math.pow(node.x-p1[0],2)+Math.pow(node.y-p1[1],2))-node.radius]
-  for(var i=2;i<nodes.length;i++){
-    node=nodes[i];
-    var d=Math.sqrt(Math.pow(node.x-p1[0],2)+Math.pow(node.y-p1[1],2))-node.radius;
-    if(d<closestNode[1]){
-      closestNode=[i+0,d];
-    }
-  }
-  for(var i=1;i<nodes.length;i++){
-    node=nodes[i];
-    if(closestNode[1]<0 && closestNode[0]==i){
-      if(nodes[closestNode[0]].radius<200){
-        nodes[closestNode[0]].radius+=2;
-      }
-    }else{
-      if(nodes[i].radius>nodes[i].nr){
-        nodes[i].radius-=2;
-      }else if(nodes[i].radius<nodes[i].nr){
-        nodes[i].radius+=2;
-      }
-    }
-  }
-  svg.selectAll("circle")
-      .attr("cx", function(d) { return d.x; })
-      .attr("cy", function(d) { return d.y; })
-      .attr("r", function(d) { return d.radius; });
-});
-
-svg.on("mousemove", function() {
-  var p1 = d3.mouse(this);
-  m=p1;
-
-  //root.px = p1[0];
-  //root.py = p1[1];
-  force.resume();
-});
-
-function collide(node) {
-  var r = node.radius +30,
-      nx1 = node.x - r,
-      nx2 = node.x + r,
-      ny1 = node.y - r,
-      ny2 = node.y + r;
-  return function(quad, x1, y1, x2, y2) {
-    if (quad.point && (quad.point !== node)) {
-      var x = node.x - quad.point.x,
-          y = node.y - quad.point.y,
-          l = Math.sqrt(x * x + y * y),
-          r = node.radius + quad.point.radius+10;
-      if (l < r) {
-        l = (l - r) / l * .5;
-        node.x -= x *= l;
-        node.y -= y *= l;
-        quad.point.x += x;
-        quad.point.y += y;
-      }
-    }
-    return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
-  };
-}
-
-</script>
+</html>
