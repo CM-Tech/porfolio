@@ -11,11 +11,100 @@
 			margin: 0;
 			padding: 0;
 		}
+
+		.search {
+			position: absolute;
+			top: 5em;
+			height: 4em;
+			z-index: 1000;
+			left: 50%;
+			width: 70vw;
+			transform: translate(-50%, 0);
+			border: solid 1px rgba(0, 0, 0, 0.1);
+			background: white;
+			border-radius: 5px;
+			box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.2);
+			overflow: hidden;
+		}
+
+		input {
+			width: 100%;
+			height: 100%;
+			outline: none !important;
+			border: none;
+			padding-left: 0.5em;
+			font-size: 2em;
+			line-height: 3em;
+		}
+
+		.project text {
+			font-size: 25px;
+			z-index: 1000;
+			text-anchor: middle;
+			font-family: sans-serif;
+			alignment-baseline: middle;
+		}
 	</style>
 </head>
 
 <body>
+	<div class="search"><input id="s"></div>
 	<script>
+		var levDist = function(s, t) {
+			var d = []; //2d matrix
+
+			// Step 1
+			var n = s.length;
+			var m = t.length;
+
+			if (n == 0) return m;
+			if (m == 0) return n;
+
+			//Create an array of arrays in javascript (a descending loop is quicker)
+			for (var i = n; i >= 0; i--) d[i] = [];
+
+			// Step 2
+			for (var i = n; i >= 0; i--) d[i][0] = i;
+			for (var j = m; j >= 0; j--) d[0][j] = j;
+
+			// Step 3
+			for (var i = 1; i <= n; i++) {
+				var s_i = s.charAt(i - 1);
+
+				// Step 4
+				for (var j = 1; j <= m; j++) {
+
+					//Check the jagged ld total so far
+					if (i == j && d[i][j] > 4) return n;
+
+					var t_j = t.charAt(j - 1);
+					var cost = (s_i == t_j) ? 0 : 1; // Step 5
+
+					//Calculate the minimum
+					var mi = d[i - 1][j] + 1;
+					var b = d[i][j - 1] + 1;
+					var c = d[i - 1][j - 1] + cost;
+
+					if (b < mi) mi = b;
+					if (c < mi) mi = c;
+
+					d[i][j] = mi; // Step 6
+
+					//Damerau transposition
+					if (i > 1 && j > 1 && s_i == t.charAt(j - 2) && s.charAt(i - 2) == t_j) {
+						d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + cost);
+					}
+				}
+			}
+
+			// Step 7
+			return d[n][m];
+		}
+		var req = new XMLHttpRequest();
+		req.open('GET', 'https://api.github.com/users/cm-tech/repos?per_page=1000', false);
+		req.send(null);
+		var repos = JSON.parse(req.responseText);
+
 		var width = window.innerWidth,
 			height = window.innerHeight;
 
@@ -23,60 +112,102 @@
 			.attr("width", width)
 			.attr("height", height)
 			.call(d3.zoom()
-				.scaleExtent([1 / 4, 4])
+				.scaleExtent([1 / 2, 2])
 				.on("zoom", () => {
-					svg.selectAll("circle").attr("transform", d3.event.transform);
+					svg.selectAll("g#big").attr("transform", d3.event.transform);
 				}));
 
-		var nodes = d3.range(100).map(() => {
-			var r = Math.random() * 10 + 100
-			return { nr: r, r }
-		});
-		nodes[0].r = 0;
+		var nodes = repos.map((e) => ({
+			text: e.name,
+			r: 75,
+			rd: 1
+		}));
+		var textField = document.getElementById("s");
+		textField.oninput = function() {
+			var ave = 0;
+			nodes = nodes.map((n) => {
+				n.rd = rDist(n.text.toLowerCase(), textField.value.toLowerCase()) + 0.1;
+				ave += n.rd / nodes.length;
+				return n;
+			});
+			nodes = nodes.map((n) => {
+				n.rd = n.rd / ave;
 
-		var collide = d3.forceCollide().radius((d) => d.r + 10);
+				n.r = (n.rd / 2 + 0.5) * 75;
+				return n;
+			});
+
+			svg.selectAll("g.project").select("circle").attr("r", (d) => d.r);
+		}
+
+		function rDist(a, b) {
+			var sa = a.substr(0, Math.min(a.length, b.length));
+			var sb = b.substr(0, Math.min(a.length, b.length));
+			var base = Math.max(1 - levDist(a.toLowerCase(), b.toLowerCase()) / (Math.max(Math.max(b.length, a.length), 1)), 0);
+			var prefix = Math.max(1 - levDist(sa.toLowerCase(), sb.toLowerCase()) / (Math.max(Math.max(sb.length, sa.length), 1)), 0);
+			return base / 2 + prefix / 2;
+		}
+		var collide = d3.forceCollide().iterations(10).radius((d) => d.r + 10);
 		var simulation = d3.forceSimulation(nodes)
 			.alphaDecay(0)
-			.force("charge", d3.forceManyBody().strength((_, i) => i ? 0 : 200))
-			.force("center", d3.forceCenter(width / 2, height / 2))
+			.force("x", d3.forceX(width / 2).strength(0.001))
+			.force("y", d3.forceY(height / 2).strength(0.001))
 			.force("collide", collide)
 			.on("tick", () => {
 				collide.radius((d) => d.r + 10)
-				svg.selectAll("circle")
-					.attr("cx", (d) => d.x)
-					.attr("cy", (d) => d.y)
+				simulation.force("x", d3.forceX(width / 2).strength((d) => d.rd / 50 + 0.001))
+					.force("y", d3.forceY(height / 2).strength((d) => d.rd / 50 + 0.001))
+				svg.selectAll("g.project")
+					.attr("transform", (d) => "translate(" + d.x + "," + d.y + ")");
 			});
 
-		svg.selectAll("circle")
-			.data(nodes.slice(1))
-			.enter().append("circle")
-			.style("fill", (d, i) => d3.schemeCategory10[i % 6])
-			.attr("r", (d) => d.nr)
-			.on("mouseover", function (d, i) {
-				d3.select(this).transition()
-					.duration(750)
-					.ease(d3.easeLinear)
-					.tween("r", () => {
-						var node = d3.select(this),
-							lerp = d3.interpolateNumber(d.r, 200);
-						return (t) => {
-							nodes[d.index].r = lerp(t);
-							node.attr("r", lerp(t))
-						}
-					});
+		var g = svg.append("g").attr("id", "big").selectAll("g")
+			.data(nodes)
+			.enter().append("g").attr("class", "project");
+
+		g.append("circle")
+			.style("stroke", (d, i) => d3.schemeCategory10[i % 6])
+			.style("stroke-width", "3")
+			.style("fill", "rgba(0,0,0,0)")
+			.attr("r", (d) => d.r).on("mouseover", function(d, i) {
+				if (!textField.value) {
+					d3.select(this).transition()
+						.duration(750)
+						.ease(d3.easeLinear)
+						.tween("r", () => {
+							var node = d3.select(this),
+								lerp = d3.interpolateNumber(d.r, 150);
+							return (t) => {
+								nodes[d.index].r = lerp(t);
+								node.attr("r", lerp(t))
+							}
+						});
+				}
 			})
-			.on("mouseout", function (d, i) {
-				d3.select(this).transition()
-					.duration(750)
-					.ease(d3.easeLinear)
-					.tween("r", () => {
-						var node = d3.select(this),
-							lerp = d3.interpolateNumber(d.r, d.nr);
-						return (t) => {
-							nodes[d.index].r = lerp(t);
-							node.attr("r", lerp(t))
-						}
-					});
+			.on("mouseout", function(d, i) {
+				if (!textField.value) {
+					d3.select(this).transition()
+						.duration(750)
+						.ease(d3.easeLinear)
+						.tween("r", () => {
+							var node = d3.select(this),
+								lerp = d3.interpolateNumber(d.r, 75);
+							return (t) => {
+								nodes[d.index].r = lerp(t);
+								node.attr("r", lerp(t))
+							}
+						});
+				}
+			})
+			.on("click", (d, i) => {
+				window.location.href = "http://cm-tech.github.io/" + d.text;
+			});
+
+		g.append("text")
+			.text((d) => d.text)
+			.style("fill", (d, i) => d3.schemeCategory10[i % 6])
+			.on("click", (d, i) => {
+				window.location.href = "http://cm-tech.github.io/" + d.text;
 			});
 	</script>
 </body>
