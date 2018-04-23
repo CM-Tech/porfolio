@@ -107,20 +107,29 @@
 
 		var width = window.innerWidth,
 			height = window.innerHeight;
-
+var zoom=d3.zoom()
+	.scaleExtent([1 / 2, 2])
+	.on("zoom", () => {
+		svg.selectAll("g#big").attr("transform", d3.event.transform);
+	});
 		var svg = d3.select("body").append("svg")
 			.attr("width", width)
 			.attr("height", height)
-			.call(d3.zoom()
-				.scaleExtent([1 / 2, 2])
-				.on("zoom", () => {
-					svg.selectAll("g#big").attr("transform", d3.event.transform);
-				}));
+			.call(zoom);
+		window.addEventListener("resize", function() {
+			width = window.innerWidth;
+			height = window.innerHeight;
+			svg.attr("width", width)
+				.attr("height", height);
+		});
 
 		var nodes = repos.map((e) => ({
 			text: e.name,
 			r: 75,
-			rd: 1
+			rd: 1,
+			clicked: false,
+			fill:"rgba(0,0,0,0)",
+			centered:false
 		}));
 		var textField = document.getElementById("s");
 		textField.focus();
@@ -156,60 +165,107 @@
 			.force("collide", collide)
 			.on("tick", () => {
 				collide.radius((d) => d.r + 10)
-				simulation.force("x", d3.forceX(width / 2).strength((d) => d.rd / 50 + 0.001))
-					.force("y", d3.forceY(height / 2).strength((d) => d.rd / 50 + 0.001))
+				simulation.force("x", d3.forceX(window.innerWidth / 2).strength((d) => d.rd / 50 + 0.001))
+					.force("y", d3.forceY(window.innerHeight / 2).strength((d) => d.rd / 50 + 0.001))
 				svg.selectAll("g.project")
-					.attr("transform", (d) => "translate(" + d.x + "," + d.y + ")");
+					.attr("transform", (d) => {
+						if(d.centered){
+							return "translate(" + window.innerWidth/2 + "," + window.innerHeight/2 + ")";
+						}
+						return "translate(" + d.x + "," + d.y + ")";
+					}).style("z-index", (d) => {
+						if(d.clicked){
+							return "1000";
+						}
+						return "1";
+					});
 			});
 
 		var g = svg.append("g").attr("id", "big").selectAll("g")
 			.data(nodes)
-			.enter().append("g").attr("class", "project");
-
-		g.append("circle")
-			.style("stroke", (d, i) => d3.schemeCategory10[i % 6])
-			.style("stroke-width", "3")
-			.style("fill", "rgba(0,0,0,0)")
-			.attr("r", (d) => d.r).on("mouseover", function(d, i) {
+			.enter().append("g").attr("class", "project")
+			.on("mouseover", function(d, i) {
 				if (!textField.value) {
-					d3.select(this).transition()
+					d3.select(this.firstChild).transition()
 						.duration(750)
 						.ease(d3.easeLinear)
 						.tween("r", () => {
-							var node = d3.select(this),
+							var node = d3.select(this.firstChild),
 								lerp = d3.interpolateNumber(d.r, 150);
 							return (t) => {
-								nodes[d.index].r = lerp(t);
+								nodes[i].r = lerp(t);
 								node.attr("r", lerp(t))
 							}
 						});
 				}
 			})
 			.on("mouseout", function(d, i) {
+				nodes[i].centered = false;
 				if (!textField.value) {
-					d3.select(this).transition()
+					d3.select(this.firstChild).transition()
 						.duration(750)
 						.ease(d3.easeLinear)
 						.tween("r", () => {
-							var node = d3.select(this),
+							var node = d3.select(this.firstChild),
 								lerp = d3.interpolateNumber(d.r, 75);
 							return (t) => {
-								nodes[d.index].r = lerp(t);
+								nodes[i].r = lerp(t);
 								node.attr("r", lerp(t))
+							}
+						}).tween("color", () => {
+							var node = d3.select(this.firstChild),
+								lerp = d3.interpolate(nodes[i].fill,  "rgba(0,0,0,0)");
+							return (t) => {
+								nodes[i].fill = lerp(t);
+								node.style("fill", lerp(t))
 							}
 						});
 				}
 			})
-			.on("click", (d, i) => {
-				window.location.href = "http://cm-tech.github.io/" + d.text;
+			.on("mousedown", function(d, i) {
+				d.clicked = true;
+				d3.select("g#big").transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+				d3.select(this.firstChild).transition()
+					.duration(750)
+					.ease(d3.easeLinear)
+					.tween("r", () => {
+						var node = d3.select(this.firstChild),
+							lerp = d3.interpolateNumber(d.r, 0.5 * Math.sqrt(Math.pow(window.innerWidth, 2) + Math.pow(window.innerHeight, 2)));
+						return (t) => {
+							nodes[i].r = lerp(t);
+							node.attr("r", lerp(t))
+						}
+					})
+					.tween("color", () => {
+						var node = d3.select(this.firstChild),
+							lerp = d3.interpolate(nodes[i].fill,  d3.schemeCategory10[i % 6]);
+						return (t) => {
+							nodes[i].fill=lerp(t);
+							node.style("fill", lerp(t))
+						}
+					}).tween("pos", () => {
+						var lerpX = d3.interpolateNumber(d.x, 0.5 * window.innerWidth),
+							  lerpY = d3.interpolateNumber(d.y, 0.5 * window.innerHeight);
+						return (t) => {
+							nodes[i].x = lerpX(t);
+							nodes[i].y = lerpY(t);
+						}
+					}).on("end",()=>{
+						nodes[i].centered = true;
+					});
+				//window.location.href = "http://cm-tech.github.io/" + d.text;
 			});
+
+
+		g.append("circle")
+			.style("stroke", (d, i) => d3.schemeCategory10[i % 6])
+			.style("stroke-width", "3")
+			.style("fill", "rgba(0,0,0,0)")
+			.attr("r", (d) => d.r);
 
 		g.append("text")
 			.text((d) => d.text)
-			.style("fill", (d, i) => d3.schemeCategory10[i % 6])
-			.on("click", (d, i) => {
-				window.location.href = "http://cm-tech.github.io/" + d.text;
-			});
+			.style("fill", (d, i) => d3.schemeCategory10[i % 6]);
 	</script>
 </body>
 
